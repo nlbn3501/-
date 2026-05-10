@@ -52,6 +52,8 @@ var drag_offset: Vector2
 
 var is_placing_node: bool = false
 var placing_node_index: int = -1
+var is_placing_problem: bool = false
+var placing_problem_index: int = -1
 var _skip_next_click: bool = false
 var _place_queue: Array = []
 
@@ -159,12 +161,18 @@ func build_mind_map_relative(auto_scroll: bool = true) -> void:
 		if not parent_group.is_empty():
 			continue
 
-		var row: int = card_index / cols
-		var col: int = card_index % cols
-		var pos: Vector2 = Vector2(
-			grid_origin.x + col * (card_w + gap_x),
-			grid_origin.y + row * (card_h + gap_y)
-		)
+		# 优先使用已保存的 pos2d，否则用网格布局
+		var pos: Vector2
+		var saved_pos2d = prob.get("pos2d")
+		if saved_pos2d is Array and saved_pos2d.size() >= 2 and float(saved_pos2d[0]) > 0.0 and float(saved_pos2d[1]) > 0.0:
+			pos = Vector2(float(saved_pos2d[0]), float(saved_pos2d[1]))
+		else:
+			var row: int = card_index / cols
+			var col: int = card_index % cols
+			pos = Vector2(
+				grid_origin.x + col * (card_w + gap_x),
+				grid_origin.y + row * (card_h + gap_y)
+			)
 
 		_create_problem_card(pi, prob, pos, [])
 		card_index += 1
@@ -346,6 +354,9 @@ func _create_problem_card(prob_index: int, prob: Dictionary, base_pos: Vector2, 
 ## 题目卡片交互：双击打开编辑对话框，右键菜单，拖拽移动/放入组
 func _on_card_gui_input(event: InputEvent, prob_index: int) -> void:
 	var virtual_idx: int = prob_index + PROBLEM_INDEX_OFFSET
+
+	if is_placing_problem or is_placing_node:
+		return
 
 	if event is InputEventMouseButton:
 		var mb: InputEventMouseButton = event as InputEventMouseButton
@@ -1279,6 +1290,12 @@ func _on_scroll_gui_input(event: InputEvent) -> void:
 			var panel: PanelContainer = node_controls[placing_node_index]
 			panel.position = container_mouse_pos - panel.custom_minimum_size / 2
 
+		if is_placing_problem:
+			var virtual_idx: int = placing_problem_index + PROBLEM_INDEX_OFFSET
+			if node_controls.has(virtual_idx):
+				var panel: PanelContainer = node_controls[virtual_idx]
+				panel.position = container_mouse_pos - panel.custom_minimum_size / 2
+
 		if _is_connecting:
 			_update_connect_line()
 
@@ -1305,6 +1322,13 @@ func _on_scroll_gui_input(event: InputEvent) -> void:
 			_finalize_placing_node()
 		elif mb.button_index == MOUSE_BUTTON_RIGHT and mb.pressed:
 			_cancel_placing_node()
+		return
+
+	if is_placing_problem:
+		if mb.button_index == MOUSE_BUTTON_LEFT and mb.pressed:
+			_finalize_placing_problem()
+		elif mb.button_index == MOUSE_BUTTON_RIGHT and mb.pressed:
+			_cancel_placing_problem()
 		return
 
 	if mb.button_index == MOUSE_BUTTON_RIGHT and mb.pressed:
@@ -2036,6 +2060,88 @@ func _finish_relation_line(target_index: int) -> void:
 	# 刷新视图
 	rebuild()
 	_log("关系创建完成: %s → %s, 类型=%s" % [problem_id, target_name, _connect_type])
+
+
+## 创建题目后进入放置模式（与2dmm自由节点一致）
+func create_problem_at(problem_data: Dictionary) -> void:
+	var prob_index: int = data_manager.call("add_problem", problem_data)
+	data_manager.call("save_problems")
+	var virtual_idx: int = prob_index + PROBLEM_INDEX_OFFSET
+
+	# rebuild 让卡片显示出来
+	rebuild(false)
+
+	if not node_controls.has(virtual_idx):
+		return
+
+	is_placing_problem = true
+	placing_problem_index = prob_index
+	_skip_next_click = false
+
+	var panel: PanelContainer = node_controls[virtual_idx]
+	panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	panel.z_index = 100
+	_snap_problem_to_mouse(virtual_idx)
+	_apply_placing_problem_style(virtual_idx)
+	select_node(virtual_idx, false)
+
+	_log("题目放置模式开始: prob_index=%d, virtual=%d" % [prob_index, virtual_idx])
+
+
+## 将正在放置的题目卡片吸附到鼠标位置
+func _snap_problem_to_mouse(virtual_idx: int) -> void:
+	if not node_controls.has(virtual_idx):
+		return
+	var global_pos: Vector2 = root_node.get_viewport().get_mouse_position()
+	var container_mouse_pos = _screen_to_container(global_pos)
+	var panel: PanelContainer = node_controls[virtual_idx]
+	panel.position = container_mouse_pos - panel.custom_minimum_size / 2
+
+
+## 为正在放置的题目卡片应用虚线边框
+func _apply_placing_problem_style(virtual_idx: int) -> void:
+	if not node_controls.has(virtual_idx):
+		return
+	var panel: PanelContainer = node_controls[virtual_idx]
+	var s: StyleBoxFlat = panel.get_theme_stylebox("panel").duplicate()
+	s.border_color = Color(0, 1, 0.5)
+	s.set_border_width_all(int(3 * zoom_scale))
+	s.shadow_color = Color(0.0, 1.0, 0.5, 0.3)
+	s.shadow_size = int(8 * zoom_scale)
+	panel.add_theme_stylebox_override("panel", s)
+
+
+## 完成题目放置
+func _finalize_placing_problem() -> void:
+	if not is_placing_problem:
+		return
+	is_placing_problem = false
+	_skip_next_click = true
+
+	var virtual_idx: int = placing_problem_index + PROBLEM_INDEX_OFFSET
+	if node_controls.has(virtual_idx):
+		var panel: PanelContainer = node_controls[virtual_idx]
+		var node_center = (panel.position + panel.size / 2) / zoom_scale
+		var prob: Dictionary = data_manager.call("get_problem", placing_problem_index)
+		if not prob.is_empty():
+			prob["pos2d"] = [node_center.x, node_center.y]
+			data_manager.call("save_problems")
+			_log("题目放置完成: %d, pos2d=(%.0f, %.0f)" % [placing_problem_index, node_center.x, node_center.y])
+	placing_problem_index = -1
+	rebuild(false)
+
+
+## 取消题目放置
+func _cancel_placing_problem() -> void:
+	if not is_placing_problem:
+		return
+	is_placing_problem = false
+	var virtual_idx: int = placing_problem_index + PROBLEM_INDEX_OFFSET
+	if node_controls.has(virtual_idx):
+		node_controls[virtual_idx].visible = false
+	data_manager.call("remove_problem", placing_problem_index)
+	placing_problem_index = -1
+	rebuild(false)
 
 
 ## 取消连线模式

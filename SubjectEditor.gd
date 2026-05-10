@@ -403,20 +403,22 @@ func _input(event: InputEvent) -> void:
 				return
 
 		if event is InputEventKey and event.pressed:
-			if event.keycode == KEY_N and event.ctrl_pressed:
+			if event.keycode == KEY_ESCAPE:
+				if _cog_map.is_placing_problem:
+					_cog_map._cancel_placing_problem()
+				elif _cog_map._is_connecting:
+					_cog_map._cancel_relation_line()
+				else:
+					_cog_map.deselect_all()
+				get_viewport().set_input_as_handled()
+				return
+			elif event.keycode == KEY_N and event.ctrl_pressed:
 				var mouse_pos: Vector2 = _cog_map.get_mouse_container_pos()
 				_on_cog_request_create_problem(mouse_pos)
 				get_viewport().set_input_as_handled()
 				return
 			elif event.keycode == KEY_DELETE:
 				_on_cog_delete_selected()
-				get_viewport().set_input_as_handled()
-				return
-			elif event.keycode == KEY_ESCAPE:
-				if _cog_map._is_connecting:
-					_cog_map._cancel_relation_line()
-				else:
-					_cog_map.deselect_all()
 				get_viewport().set_input_as_handled()
 				return
 			elif event.keycode == KEY_S and event.ctrl_pressed:
@@ -1087,11 +1089,9 @@ func _create_problem_directly(position: Vector2) -> void:
 		"source": "",
 		"images": [],
 		"note": "",
-		"pos2d": [position.x, position.y],
 	}
-	_cog_data.add_problem(new_problem)
 	if _cog_map:
-		_cog_map.rebuild()
+		_cog_map.create_problem_at(new_problem)
 
 ## 显示创建题目对话框
 func _show_create_problem_dialog(position: Vector2) -> void:
@@ -1193,11 +1193,9 @@ func _show_create_problem_dialog(position: Vector2) -> void:
 			"source": source_edit.text.strip_edges(),
 			"images": [],
 			"note": note_edit.text.strip_edges(),
-			"pos2d": [position.x, position.y],
 		}
-		_cog_data.add_problem(new_problem)
 		if _cog_map:
-			_cog_map.rebuild()
+			_cog_map.create_problem_at(new_problem)
 		dialog.queue_free()
 	)
 	dialog.canceled.connect(func(): dialog.queue_free())
