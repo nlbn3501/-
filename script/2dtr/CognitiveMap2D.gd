@@ -1819,140 +1819,130 @@ func update_node_style(index: int, is_selected_flag: bool, is_hovered: bool) -> 
 	_update_node_style(index, is_selected_flag, is_hovered)
 
 
-## 力导向自动布局：基于节点间斥力和连线弹簧力迭代计算最终位置
+## 力导向自动布局：节点和组都往画布中心靠，组内题目跟组走
 func _run_force_layout() -> void:
-	if node_controls.is_empty():
-		return
+	var canvas_cx: float = MAP_WIDTH / 2.0
+	var canvas_cy: float = MAP_HEIGHT / 2.0
 
-	# 分离题目节点和知识节点
-	var problem_keys: Array = []
-	var knowledge_keys: Array = []
+	# 收集所有顶层组（无 parent_id）的当前位置，归位
+	for gid in _group_panels:
+		var gi: int = data_manager.call("find_group_by_id", gid)
+		if gi < 0:
+			continue
+		var g: Dictionary = data_manager.call("get_group", gi)
+		var parent_id: String = str(g.get("parent_id", ""))
+		if not parent_id.is_empty():
+			continue
+		var pos2d: Array = g.get("pos2d", [canvas_cx, canvas_cy])
+		var gx: float = float(pos2d[0])
+		var gy: float = float(pos2d[1])
+		# 超出画布范围的组拉回中心附近
+		if gx < -500.0 or gx > MAP_WIDTH + 500.0 or gy < -500.0 or gy > MAP_HEIGHT + 500.0:
+			g["pos2d"] = [canvas_cx, canvas_cy]
+			data_manager.call("save_groups")
+			if _group_panels.has(gid) and is_instance_valid(_group_panels[gid]):
+				_group_panels[gid].position = Vector2(canvas_cx, canvas_cy) * zoom_scale - _group_panels[gid].custom_minimum_size / 2
 
+	# 收集独立题目卡片（不在任何组中）
+	var free_problem_keys: Array = []
 	for key in node_controls.keys():
 		if not is_instance_valid(node_controls[key]):
 			continue
-		if key >= PROBLEM_INDEX_OFFSET:
-			problem_keys.append(key)
-		else:
-			knowledge_keys.append(key)
+		if key < PROBLEM_INDEX_OFFSET:
+			continue
+		var prob_idx: int = key - PROBLEM_INDEX_OFFSET
+		var prob: Dictionary = data_manager.call("get_problem", prob_idx)
+		if prob.is_empty():
+			continue
+		var prob_id: String = str(prob.get("id", ""))
+		var parent_group: String = data_manager.call("get_group_of_child", prob_id)
+		if parent_group.is_empty():
+			free_problem_keys.append(key)
 
-	if problem_keys.is_empty() and knowledge_keys.is_empty():
+	if free_problem_keys.is_empty() and _group_panels.is_empty():
 		return
 
-	# 收集连线关系
-	var edges: Array = []
-	var all_relations: Array = data_manager.call("get_all_relations")
-	var relation_count: Dictionary = {}  # 每个知识节点的关系数
+	# 力导向参数
+	var iterations: int = 60
+	var repulsion: float = 80000.0
+	var center_pull: float = 0.02
+	var damping: float = 0.85
 
-	for rel in all_relations:
-		var problem_id: String = str(rel.get("problem_id", ""))
-		var target_name: String = str(rel.get("target", ""))
-		var prob_idx: int = -1
-		for pi in _shown_problem_indices:
-			var p: Dictionary = data_manager.call("get_problem", pi)
-			if str(p.get("id", "")) == problem_id:
-				prob_idx = pi
-				break
-		if prob_idx < 0:
-			continue
-		var prob_virtual: int = prob_idx + PROBLEM_INDEX_OFFSET
-		var target_idx: int = data_manager.call("find_by_name", target_name)
-		if target_idx < 0:
-			continue
-		edges.append([prob_virtual, target_idx])
-		if not relation_count.has(target_idx):
-			relation_count[target_idx] = 0
-		relation_count[target_idx] += 1
-
-	var canvas_w: float = MAP_WIDTH
-	var canvas_h: float = MAP_HEIGHT
+	# 收集所有"实体"的位置（独立卡片 + 顶层组）
 	var positions: Dictionary = {}
+	var velocities: Dictionary = {}
 
-	# 题目节点均匀分布在底部一行
-	var problem_row_y: float = canvas_h - 150.0
-	var problem_spacing: float = 200.0
-	var problems_start_x: float = (canvas_w - problem_spacing * (problem_keys.size() - 1)) / 2.0
+	for key in free_problem_keys:
+		var panel: PanelContainer = node_controls[key]
+		positions[key] = panel.position / zoom_scale + panel.custom_minimum_size / (2.0 * zoom_scale)
+		velocities[key] = Vector2.ZERO
 
-	for i in problem_keys.size():
-		positions[problem_keys[i]] = Vector2(problems_start_x + i * problem_spacing, problem_row_y)
+	for gid in _group_panels:
+		var gp: PanelContainer = _group_panels[gid]
+		if not is_instance_valid(gp):
+			continue
+		var gi: int = data_manager.call("find_group_by_id", gid)
+		if gi < 0:
+			continue
+		var g: Dictionary = data_manager.call("get_group", gi)
+		if not str(g.get("parent_id", "")).is_empty():
+			continue
+		positions[gid] = gp.position / zoom_scale + gp.custom_minimum_size / (2.0 * zoom_scale)
+		velocities[gid] = Vector2.ZERO
 
-	# 知识节点按关系数排序，关系多的排前面
-	knowledge_keys.sort_custom(func(a, b):
-		return relation_count.get(a, 0) > relation_count.get(b, 0)
-	)
+	var all_keys: Array = positions.keys()
 
-	# 计算每个知识节点的X中心（引用它的题目X的平均值）
-	var knowledge_center_x: Dictionary = {}
-	for ek in knowledge_keys:
-		knowledge_center_x[ek] = []
+	# 力导向迭代
+	for _iter in iterations:
+		for i in all_keys.size():
+			for j in range(i + 1, all_keys.size()):
+				var a: Variant = all_keys[i]
+				var b: Variant = all_keys[j]
+				var delta: Vector2 = positions[a] - positions[b]
+				var dist: float = max(delta.length(), 1.0)
+				var force: Vector2 = delta.normalized() * repulsion / (dist * dist)
+				velocities[a] += force
+				velocities[b] -= force
 
-	for edge in edges:
-		if positions.has(edge[0]) and knowledge_center_x.has(edge[1]):
-			knowledge_center_x[edge[1]].append(positions[edge[0]].x)
+			# 向中心拉
+			var to_center: Vector2 = Vector2(canvas_cx, canvas_cy) - positions[all_keys[i]]
+			velocities[all_keys[i]] += to_center * center_pull
 
-	for ek in knowledge_keys:
-		if knowledge_center_x[ek].size() > 0:
-			var avg: float = 0.0
-			for x in knowledge_center_x[ek]:
-				avg += x
-			knowledge_center_x[ek] = avg / knowledge_center_x[ek].size()
-		else:
-			knowledge_center_x[ek] = canvas_w / 2.0
+		for key in all_keys:
+			velocities[key] *= damping
+			positions[key] += velocities[key]
 
-	# 多行网格布局：每行最多6个，行间间距，每行水平对齐
-	var nodes_per_row: int = 6
-	var row_spacing: float = 120.0
-	var node_spacing: float = 160.0
-	var top_margin: float = 120.0
-
-	for i in knowledge_keys.size():
-		var row: int = i / nodes_per_row
-		var col: int = i % nodes_per_row
-		var nodes_in_row: int = min(nodes_per_row, knowledge_keys.size() - row * nodes_per_row)
-		
-		# 每行居中
-		var row_width: float = node_spacing * (nodes_in_row - 1)
-		var row_start_x: float = (canvas_w - row_width) / 2.0
-		
-		# 奇数行偏移，形成交错布局
-		var offset_x: float = 0.0
-		if row % 2 == 1:
-			offset_x = node_spacing * 0.5
-		
-		var x: float = row_start_x + col * node_spacing + offset_x
-		var y: float = top_margin + row * row_spacing
-		
-		# 微调：向引用中心靠拢
-		var center_pull: float = 0.15
-		x = x * (1.0 - center_pull) + knowledge_center_x[knowledge_keys[i]] * center_pull
-		
-		positions[knowledge_keys[i]] = Vector2(x, y)
-
-	# 应用结果到面板
-	for key in node_controls.keys():
+	# 应用位置
+	for key in free_problem_keys:
 		if not positions.has(key):
 			continue
 		var panel: PanelContainer = node_controls[key]
 		if not is_instance_valid(panel):
 			continue
 		var new_center: Vector2 = positions[key]
-		panel.position = new_center * zoom_scale - panel.size / 2.0
+		panel.position = new_center * zoom_scale - panel.custom_minimum_size / 2.0
+		var prob_idx: int = key - PROBLEM_INDEX_OFFSET
+		var prob: Dictionary = data_manager.call("get_problem", prob_idx)
+		if not prob.is_empty():
+			prob["pos2d"] = [new_center.x, new_center.y]
+	data_manager.call("save_problems")
 
-		if key >= PROBLEM_INDEX_OFFSET:
-			var prob_idx: int = key - PROBLEM_INDEX_OFFSET
-			var prob: Dictionary = data_manager.call("get_problem", prob_idx)
-			if not prob.is_empty():
-				prob["pos2d"] = [new_center.x, new_center.y]
-				data_manager.call("save_problems")
-		else:
-			var item: Dictionary = data_manager.call("get_item", key)
-			if not item.is_empty():
-				item["pos2d"] = [new_center.x, new_center.y]
-				data_manager.call("save_data")
+	for gid in _group_panels:
+		if not positions.has(gid):
+			continue
+		var gp: PanelContainer = _group_panels[gid]
+		if not is_instance_valid(gp):
+			continue
+		var new_center: Vector2 = positions[gid]
+		gp.position = new_center * zoom_scale - gp.custom_minimum_size / 2.0
+		var gi: int = data_manager.call("find_group_by_id", gid)
+		if gi >= 0:
+			var g: Dictionary = data_manager.call("get_group", gi)
+			g["pos2d"] = [new_center.x, new_center.y]
+	data_manager.call("save_groups")
 
 	_update_container_size()
-	_draw_relation_lines()
-	_log("自动布局完成: %d 题目, %d 知识点" % [problem_keys.size(), knowledge_keys.size()])
+	_log("力导向布局完成: %d 独立卡片, %d 组" % [free_problem_keys.size(), _group_panels.size()])
 
 
 ## ==================== 连线模式 ====================
