@@ -1,0 +1,14 @@
+[gd_resource type="Resource" script_class="AIAssistantResource" format=3 uid="uid://bkywhvpsocjv8"]
+
+[ext_resource type="Resource" uid="uid://c0xq2vafep0gu" path="res://addons/ai_autonomous_agent/llm_providers/ollama.tres" id="1_ttwxv"]
+[ext_resource type="Script" uid="uid://bi0d7x7jkgql8" path="res://addons/ai_autonomous_agent/assistants/ai_assistant_resource.gd" id="2_um14u"]
+
+[resource]
+script = ExtResource("2_um14u")
+type_name = "MyAgent"
+ai_model = "qwen3:8b"
+llm_provider = ExtResource("1_ttwxv")
+ai_description = "
+
+"
+max_autonomous_steps = 15

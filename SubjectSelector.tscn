@@ -1,0 +1,81 @@
+[gd_scene format=3 uid="uid://d35c3gvvj413g"]
+
+[ext_resource type="Script" uid="uid://djoc3k75h0pq" path="res://SubjectSelector.gd" id="1_sel"]
+
+[node name="SubjectSelector" type="Control" unique_id=1460517233]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("1_sel")
+
+[node name="VBox" type="VBoxContainer" parent="." unique_id=1233219406]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="TopBar" type="HBoxContainer" parent="VBox" unique_id=999174933]
+layout_mode = 2
+
+[node name="LblWorkspace" type="Label" parent="VBox/TopBar" unique_id=20425100]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "（未设置工作目录）"
+clip_text = true
+
+[node name="BtnSwitchDir" type="Button" parent="VBox/TopBar" unique_id=12406833]
+layout_mode = 2
+text = "切换工作目录"
+
+[node name="BtnSettings" type="Button" parent="VBox/TopBar" unique_id=1421100821]
+layout_mode = 2
+text = "设置"
+
+[node name="MainArea" type="HSplitContainer" parent="VBox" unique_id=1168655861]
+layout_mode = 2
+size_flags_vertical = 3
+split_offsets = PackedInt32Array(-300)
+split_offset = -300
+
+[node name="ItemList" type="ItemList" parent="VBox/MainArea" unique_id=1108963414]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="BtnPanel" type="VBoxContainer" parent="VBox/MainArea" unique_id=1024252876]
+layout_mode = 2
+
+[node name="VBox" type="VBoxContainer" parent="VBox/MainArea/BtnPanel" unique_id=447198273]
+layout_mode = 2
+
+[node name="BtnNew" type="Button" parent="VBox/MainArea/BtnPanel/VBox" unique_id=472877370]
+layout_mode = 2
+text = "新建学科"
+
+[node name="BtnImport" type="Button" parent="VBox/MainArea/BtnPanel/VBox" unique_id=953260159]
+layout_mode = 2
+text = "导入学科"
+
+[node name="BtnExport" type="Button" parent="VBox/MainArea/BtnPanel/VBox" unique_id=1205436349]
+layout_mode = 2
+text = "导出学科"
+
+[node name="BtnOpen" type="Button" parent="VBox/MainArea/BtnPanel/VBox" unique_id=1484569270]
+layout_mode = 2
+text = "打开学科"
+
+[node name="BottomBar" type="VBoxContainer" parent="VBox" unique_id=1209767520]
+layout_mode = 2
+
+[node name="LblRecent" type="Label" parent="VBox/BottomBar" unique_id=1556605566]
+layout_mode = 2
+text = "最近打开"
+
+[node name="RecentList" type="ItemList" parent="VBox/BottomBar" unique_id=5323031]
+custom_minimum_size = Vector2(0, 80)
+layout_mode = 2
+size_flags_vertical = 0
