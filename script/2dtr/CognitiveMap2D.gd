@@ -170,8 +170,8 @@ func build_mind_map_relative(auto_scroll: bool = true) -> void:
 			var row: int = card_index / cols
 			var col: int = card_index % cols
 			pos = Vector2(
-				grid_origin.x + col * (card_w + gap_x),
-				grid_origin.y + row * (card_h + gap_y)
+				grid_origin.x + col * (card_w + gap_x) + card_w / 2.0,
+				grid_origin.y + row * (card_h + gap_y) + card_h / 2.0
 			)
 
 		_create_problem_card(pi, prob, pos, [])
@@ -328,7 +328,7 @@ func _create_problem_card(prob_index: int, prob: Dictionary, base_pos: Vector2, 
 	vbox.add_child(info_row)
 
 	panel.add_child(vbox)
-	panel.position = base_pos * zoom_scale
+	panel.position = base_pos * zoom_scale - panel.custom_minimum_size / 2
 
 	panel.gui_input.connect(_on_card_gui_input.bind(prob_index))
 	panel.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
