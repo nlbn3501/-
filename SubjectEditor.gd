@@ -599,7 +599,7 @@ func _update_tab_visibility() -> void:
 
 	if _current_tab == 2 and _cog_map:
 		_sync_cog_data_from_2dmm()
-		_cog_map.rebuild(true)
+		_cog_map.rebuild()
 
 
 ## 更新顶部科目名称标签

@@ -382,6 +382,14 @@ func _on_card_gui_input(event: InputEvent, prob_index: int) -> void:
 						history_manager.record_operation("移动题目: %s" % str(item.get("title", "")))
 					update_node_position(virtual_idx)
 					data_manager.call("save_problems")
+					# 如果卡片属于某个组，拖到空白处=从组中移出
+					var prob2: Dictionary = data_manager.call("get_problem", prob_index)
+					var prob_id2: String = str(prob2.get("id", ""))
+					var old_group: String = data_manager.call("get_group_of_child", prob_id2)
+					if not old_group.is_empty():
+						data_manager.call("remove_child_from_group", old_group, prob_id2)
+						rebuild()
+						return
 				else:
 					panel.position = drag_start_pos
 			return
@@ -484,14 +492,31 @@ func _clear_all() -> void:
 ## ==================== 组容器 ====================
 
 func _build_groups() -> void:
+	# 第一遍：为所有组创建面板（无论有无 parent_id）
 	var group_count: int = data_manager.call("get_group_count")
 	for gi in group_count:
 		var g: Dictionary = data_manager.call("get_group", gi)
-		var gid: String = str(g.get("id", ""))
-		var parent_id: String = str(g.get("parent_id", ""))
-		if not parent_id.is_empty():
-			continue
 		_create_group_panel(g)
+
+	# 第二遍：把有 parent_id 的子组面板移到父组的 content 中
+	for gi in group_count:
+		var g: Dictionary = data_manager.call("get_group", gi)
+		var parent_id: String = str(g.get("parent_id", ""))
+		if parent_id.is_empty():
+			continue
+		var gid: String = str(g.get("id", ""))
+		if not _group_panels.has(gid) or not _group_panels.has(parent_id):
+			continue
+		var child_panel: PanelContainer = _group_panels[gid]
+		var parent_panel: PanelContainer = _group_panels[parent_id]
+		if not is_instance_valid(child_panel) or not is_instance_valid(parent_panel):
+			continue
+		var parent_content: VBoxContainer = parent_panel.find_child("Content", true, false) as VBoxContainer
+		if parent_content == null:
+			continue
+		if child_panel.get_parent():
+			child_panel.get_parent().remove_child(child_panel)
+		parent_content.add_child(child_panel)
 
 func _create_group_panel(g: Dictionary) -> void:
 	var gid: String = str(g.get("id", ""))
@@ -548,15 +573,8 @@ func _create_group_panel(g: Dictionary) -> void:
 
 	for child_id in children:
 		if child_id.begins_with("grp_"):
-			var child_gi: int = data_manager.call("find_group_by_id", child_id)
-			if child_gi >= 0:
-				var child_g: Dictionary = data_manager.call("get_group", child_gi)
-				_create_group_panel(child_g)
-				if _group_panels.has(child_id) and content.visible:
-					var child_panel: PanelContainer = _group_panels[child_id]
-					if is_instance_valid(child_panel):
-						child_panel.get_parent().remove_child(child_panel)
-						content.add_child(child_panel)
+			# 子组面板已在 _build_groups 第二遍中移入，这里跳过
+			pass
 		else:
 			for pi in data_manager.call("get_problem_count"):
 				var prob: Dictionary = data_manager.call("get_problem", pi)
@@ -572,8 +590,8 @@ func _create_group_panel(g: Dictionary) -> void:
 	panel.add_child(wrapper)
 
 	collapse_btn.pressed.connect(func():
-		var is_now_collapsed: bool = not content.visible
-		g["collapsed"] = is_now_collapsed
+		var new_collapsed: bool = not g.get("collapsed", false)
+		g["collapsed"] = new_collapsed
 		data_manager.call("save_groups")
 		rebuild(false)
 	)
@@ -660,8 +678,40 @@ func _on_group_gui_input(event: InputEvent, group_id: String) -> void:
 					if dist > 20.0:
 						var base_pos: Vector2 = panel.position / zoom_scale
 						data_manager.call("set_group_prop", group_id, "pos2d", [base_pos.x, base_pos.y])
+						# 拖到了另一个组：嵌套进去
+						if not _drag_over_group.is_empty() and _drag_over_group != group_id:
+							# 防止循环：不能把父组拖进自己的子组
+							if not _is_descendant_of(_drag_over_group, group_id):
+								# 先从旧父组中移除
+								var gi2: int = data_manager.call("find_group_by_id", group_id)
+								if gi2 >= 0:
+									var gg2: Dictionary = data_manager.call("get_group", gi2)
+									var old_p: String = str(gg2.get("parent_id", ""))
+									if not old_p.is_empty() and old_p != _drag_over_group:
+										data_manager.call("remove_child_from_group", old_p, group_id)
+								data_manager.call("set_group_prop", group_id, "parent_id", _drag_over_group)
+								var target_gi: int = data_manager.call("find_group_by_id", _drag_over_group)
+								if target_gi >= 0:
+									var target_children: Array = data_manager.call("get_group", target_gi).get("children", [])
+									if not target_children.has(group_id):
+										data_manager.call("add_child_to_group", _drag_over_group, group_id)
+							_drag_over_group = ""
+							rebuild(false)
+							return
+						# 拖到空白处：从父组中移出
+						var gi: int = data_manager.call("find_group_by_id", group_id)
+						if gi >= 0:
+							var gg: Dictionary = data_manager.call("get_group", gi)
+							var old_parent: String = str(gg.get("parent_id", ""))
+							if not old_parent.is_empty():
+								data_manager.call("remove_child_from_group", old_parent, group_id)
+								gg["parent_id"] = ""
+								data_manager.call("save_groups")
+								rebuild(false)
+								return
 					else:
 						panel.position = drag_start_pos
+			_drag_over_group = ""
 			return
 
 	elif event is InputEventMouseMotion and is_dragging and drag_node_index == -2:
@@ -700,6 +750,22 @@ func _check_group_hover(mouse_global: Vector2, exclude_id: String) -> void:
 				s.border_color = Color(0.3, 0.9, 0.5, 0.9)
 				s.set_border_width_all(int(3 * zoom_scale))
 				gp.add_theme_stylebox_override("panel", s)
+
+
+## 检查 target_id 是否是 ancestor_id 的后代（防止循环嵌套）
+func _is_descendant_of(target_id: String, ancestor_id: String) -> bool:
+	if target_id == ancestor_id:
+		return true
+	var gi: int = data_manager.call("find_group_by_id", target_id)
+	if gi < 0:
+		return false
+	var g: Dictionary = data_manager.call("get_group", gi)
+	var children: Array = g.get("children", [])
+	for child_id in children:
+		if str(child_id).begins_with("grp_"):
+			if _is_descendant_of(str(child_id), ancestor_id):
+				return true
+	return false
 
 
 func _show_group_context_menu(group_id: String, mouse_pos: Vector2) -> void:
@@ -763,22 +829,25 @@ func _rename_group_dialog(group_id: String) -> void:
 
 
 func _update_group_sizes() -> void:
-	await root_node.get_tree().process_frame
 	for gid in _group_panels:
 		var gp: PanelContainer = _group_panels[gid]
 		if not is_instance_valid(gp):
 			continue
-		var content: VBoxContainer = gp.get_node_or_null("Content") if gp.has_node("Content") else null
-		if content and content.visible:
-			var min_size: Vector2 = content.get_combined_minimum_size()
-			var new_w: float = max(400.0 * zoom_scale, min_size.x + 24.0 * zoom_scale)
-			var new_h: float = max(100.0 * zoom_scale, min_size.y + 46.0 * zoom_scale)
-			gp.custom_minimum_size = Vector2(new_w, new_h)
-			var gi: int = data_manager.call("find_group_by_id", gid)
-			if gi >= 0:
-				var g: Dictionary = data_manager.call("get_group", gi)
-				g["size"] = [new_w / zoom_scale, new_h / zoom_scale]
-				data_manager.call("save_groups")
+		var content: VBoxContainer = gp.find_child("Content", true, false) as VBoxContainer
+		if content == null:
+			continue
+		# 只对展开的组根据子内容自适应尺寸；折叠的组不覆盖已存尺寸
+		if not content.visible:
+			continue
+		var min_size: Vector2 = content.get_combined_minimum_size()
+		var new_w: float = max(400.0 * zoom_scale, min_size.x + 24.0 * zoom_scale)
+		var new_h: float = max(100.0 * zoom_scale, min_size.y + 46.0 * zoom_scale)
+		gp.custom_minimum_size = Vector2(new_w, new_h)
+		var gi: int = data_manager.call("find_group_by_id", gid)
+		if gi >= 0:
+			var g: Dictionary = data_manager.call("get_group", gi)
+			g["size"] = [new_w / zoom_scale, new_h / zoom_scale]
+	data_manager.call("save_groups")
 
 
 func _drop_into_group(child_id: String, group_id: String) -> void:
