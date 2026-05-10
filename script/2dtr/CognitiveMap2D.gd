@@ -546,40 +546,44 @@ func _create_group_panel(g: Dictionary) -> void:
 	panel.z_index = 0
 
 	var style: StyleBoxFlat = StyleBoxFlat.new()
-	style.set_corner_radius_all(int(12 * zoom_scale))
-	style.set_border_width_all(int(2 * zoom_scale))
+	style.set_corner_radius_all(12)
+	style.set_border_width_all(2)
 	style.border_color = border_color
 	style.bg_color = bg_color
-	style.content_margin_left = 8.0 * zoom_scale
-	style.content_margin_right = 8.0 * zoom_scale
-	style.content_margin_top = 30.0 * zoom_scale
-	style.content_margin_bottom = 8.0 * zoom_scale
+	style.content_margin_left = 8.0
+	style.content_margin_right = 8.0
+	style.content_margin_top = 30.0
+	style.content_margin_bottom = 8.0
 
-	var display_w: float = float(gsize[0]) * zoom_scale
-	var display_h: float = float(gsize[1]) * zoom_scale if not collapsed else 40.0 * zoom_scale
+	var display_w: float = float(gsize[0])
+	var display_h: float = float(gsize[1]) if not collapsed else 40.0
 	panel.custom_minimum_size = Vector2(display_w, display_h)
 	panel.add_theme_stylebox_override("panel", style)
-	panel.position = Vector2(float(pos2d[0]), float(pos2d[1])) * zoom_scale
+	panel.position = Vector2(float(pos2d[0]), float(pos2d[1])) * zoom_scale - Vector2(display_w, display_h) / 2
 
 	var title_bar: HBoxContainer = HBoxContainer.new()
 	title_bar.name = "TitleBar"
+	title_bar.custom_minimum_size = Vector2(0, 24)
 
 	var collapse_btn: Button = Button.new()
 	collapse_btn.text = "▼" if not collapsed else "▶"
 	collapse_btn.flat = true
-	collapse_btn.custom_minimum_size = Vector2(24 * zoom_scale, 24 * zoom_scale)
-	collapse_btn.add_theme_font_size_override("font_size", int(12 * zoom_scale))
+	collapse_btn.custom_minimum_size = Vector2(24, 24)
+	collapse_btn.add_theme_font_size_override("font_size", 12)
 	title_bar.add_child(collapse_btn)
 
 	var title_label: Label = Label.new()
 	title_label.text = gname
-	title_label.add_theme_font_size_override("font_size", int(14 * zoom_scale))
+	title_label.add_theme_font_size_override("font_size", 14)
 	title_label.add_theme_color_override("font_color", Color(0.9, 0.9, 0.9))
+	title_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	title_label.clip_text = true
+	title_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	title_bar.add_child(title_label)
 
 	var content: VBoxContainer = VBoxContainer.new()
 	content.name = "Content"
-	content.add_theme_constant_override("separation", int(10 * zoom_scale))
+	content.add_theme_constant_override("separation", 10)
 	content.visible = not collapsed
 
 	for child_id in children:
@@ -595,7 +599,7 @@ func _create_group_panel(g: Dictionary) -> void:
 					break
 
 	var wrapper: VBoxContainer = VBoxContainer.new()
-	wrapper.add_theme_constant_override("separation", int(4 * zoom_scale))
+	wrapper.add_theme_constant_override("separation", 4)
 	wrapper.add_child(title_bar)
 	wrapper.add_child(content)
 	panel.add_child(wrapper)
@@ -847,17 +851,16 @@ func _update_group_sizes() -> void:
 		var content: VBoxContainer = gp.find_child("Content", true, false) as VBoxContainer
 		if content == null:
 			continue
-		# 只对展开的组根据子内容自适应尺寸；折叠的组不覆盖已存尺寸
 		if not content.visible:
 			continue
 		var min_size: Vector2 = content.get_combined_minimum_size()
-		var new_w: float = max(400.0 * zoom_scale, min_size.x + 24.0 * zoom_scale)
-		var new_h: float = max(100.0 * zoom_scale, min_size.y + 46.0 * zoom_scale)
+		var new_w: float = max(400.0, min_size.x + 24.0)
+		var new_h: float = max(100.0, min_size.y + 46.0)
 		gp.custom_minimum_size = Vector2(new_w, new_h)
 		var gi: int = data_manager.call("find_group_by_id", gid)
 		if gi >= 0:
 			var g: Dictionary = data_manager.call("get_group", gi)
-			g["size"] = [new_w / zoom_scale, new_h / zoom_scale]
+			g["size"] = [new_w, new_h]
 	data_manager.call("save_groups")
 
 
@@ -1179,36 +1182,14 @@ func _apply_zoom_update(old_zoom: float) -> void:
 		var g: Dictionary = data_manager.call("get_group", gi)
 		var gsize: Array = g.get("size", [400.0, 300.0])
 		var collapsed: bool = g.get("collapsed", false)
-		var color_idx: int = int(g.get("color_index", 0))
-		var bg_color: Color = GROUP_COLORS[color_idx % GROUP_COLORS.size()]
-		var border_color: Color = Color(bg_color.r + 0.15, bg_color.g + 0.15, bg_color.b + 0.15, 0.6)
 
-		var display_w: float = float(gsize[0]) * zoom_scale
-		var display_h: float = float(gsize[1]) * zoom_scale if not collapsed else 40.0 * zoom_scale
+		var display_w: float = float(gsize[0])
+		var display_h: float = float(gsize[1]) if not collapsed else 40.0
 		var new_size: Vector2 = Vector2(display_w, display_h)
 
 		gp.custom_minimum_size = new_size
 		gp.size = new_size
 		gp.position = base_pos * zoom_scale - new_size / 2.0
-
-		var style: StyleBoxFlat = gp.get_theme_stylebox("panel").duplicate()
-		style.set_corner_radius_all(int(12 * zoom_scale))
-		style.set_border_width_all(int(2 * zoom_scale))
-		style.border_color = border_color
-		style.content_margin_left = 8.0 * zoom_scale
-		style.content_margin_right = 8.0 * zoom_scale
-		style.content_margin_top = 30.0 * zoom_scale
-		style.content_margin_bottom = 8.0 * zoom_scale
-		gp.add_theme_stylebox_override("panel", style)
-
-		var title_bar: HBoxContainer = gp.get_node_or_null("TitleBar") if gp.has_node("TitleBar") else null
-		if title_bar:
-			for child in title_bar.get_children():
-				if child is Button:
-					child.custom_minimum_size = Vector2(24 * zoom_scale, 24 * zoom_scale)
-					child.add_theme_font_size_override("font_size", int(12 * zoom_scale))
-				elif child is Label:
-					child.add_theme_font_size_override("font_size", int(14 * zoom_scale))
 
 	_update_container_size()
 
